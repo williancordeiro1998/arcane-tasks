@@ -1,0 +1,31 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>ArcaneTasks Favicon</title>
+
+  <!-- Fundo Sutil -->
+  <rect width="32" height="32" rx="6" fill="#1f2937"/>
+
+  <!-- Brilho Arcano (Sombra Externa) -->
+  <filter id="neon-glow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>
+    <feFlood flood-color="#a5b4fc" flood-opacity="0.8" result="color"/>
+    <feComposite in="color" in2="blur" operator="in" result="glow"/>
+    <feMerge>
+      <feMergeNode in="glow"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+
+  <!-- Elemento Principal: Lua Crescente -->
+  <path
+    d="M16 4C9.37258 4 4 9.37258 4 16C4 22.6274 9.37258 28 16 28C22.6274 28 28 22.6274 28 16C28 15.1121 27.8929 14.237 27.6888 13.3888C24.7827 16.4837 20.3061 18.2 15.5 18.2C10.6939 18.2 6.21735 16.4837 3.3112 13.3888C3.10712 14.237 3 15.1121 3 16C3 23.18 8.82 29 16 29C23.18 29 29 23.18 29 16C29 8.82 23.18 3 16 3C15.8879 3 15.763 3.00712 15.6112 3.0112"
+    fill="#818CF8"
+    filter="url(#neon-glow)"
+  />
+
+  <!-- Oculta a parte interna para criar a Lua Crescente -->
+  <circle cx="17" cy="15" r="7" fill="#1f2937"/>
+
+  <!-- Detalhe do Núcleo da Lua (Brilho Intenso) -->
+  <circle cx="16" cy="16" r="1.5" fill="white" style="filter: drop-shadow(0 0 4px #e0f2fe);"/>
+
+</svg>
