@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.x]
+        node-version: [20.x] # Atualizado para Node 20.x (Requisito do Next.js moderno)
 
     steps:
     # 1. Baixa o código do repositório
