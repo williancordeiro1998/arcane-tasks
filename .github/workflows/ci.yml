@@ -24,15 +24,15 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        # Cache reativado agora que os package-lock.json serão comitados
-        cache: 'npm'
-        cache-dependency-path: backend/package-lock.json
+        # Cache desativado temporariamente para evitar erros se o package-lock.json não estiver no repo
+        # cache: 'npm'
+        # cache-dependency-path: backend/package-lock.json
 
     - name: Install Backend Dependencies
       run: |
         cd backend
-        # Usa 'npm ci' para instalações limpas e determinísticas baseadas no lockfile
-        npm ci
+        # Usa 'npm install' que é mais tolerante à falta de lockfile que 'npm ci'
+        npm install
 
     # (Descomente abaixo se tiver testes configurados no backend)
     # - name: Run Backend Tests
@@ -45,14 +45,14 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        # Cache reativado
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
+        # Cache desativado temporariamente
+        # cache: 'npm'
+        # cache-dependency-path: frontend/package-lock.json
 
     - name: Install Frontend Dependencies
       run: |
         cd frontend
-        npm ci
+        npm install
 
     - name: Lint Frontend
       run: |
