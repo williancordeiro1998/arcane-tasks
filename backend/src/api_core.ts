@@ -4,6 +4,7 @@ import { Pool } from 'pg'; // Driver do PostgreSQL
 import { randomUUID } from 'crypto';
 
 // --- CONFIGURAÇÃO DE TIPAGEM ---
+// Estende o tipo Request para incluir o objeto 'user'
 declare module 'fastify' {
   interface FastifyRequest {
     user: {
@@ -24,25 +25,32 @@ const structuredLogger = (level: string, message: string, data: any = {}) => {
   }));
 };
 
-// --- CONEXÃO COM O BANCO DE DADOS ---
-// Ajuste as credenciais conforme a sua instalação local
-const pool = new Pool({
-  user: 'postgres',      // Seu usuário do Postgres
-  host: 'localhost',
-  database: 'arcanedb',  // O banco que criamos
-  password: '1490',      // <--- SENHA ATUALIZADA AQUI
-  port: 5432,
-  // Configuração para SSL (obrigatório na maioria dos bancos cloud em produção)
-  // Localmente (NODE_ENV não definido ou development), ssl é falso.
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
+// --- CONEXÃO COM A BASE DE DADOS (DEPLOY READY) ---
+// Tenta usar a variável de ambiente (Nuvem). Se não tiver, usa a configuração local.
+const connectionString = process.env.DATABASE_URL;
+
+const poolConfig = connectionString
+  ? {
+      connectionString,
+      ssl: { rejectUnauthorized: false } // Obrigatório para Render/Neon em produção
+    }
+  : {
+      user: 'postgres',
+      host: 'localhost',
+      database: 'arcanedb',
+      password: '1490', // A sua palavra-passe local
+      port: 5432,
+      ssl: false
+    };
+
+const pool = new Pool(poolConfig);
 
 // Helper para executar transações com contexto de segurança (RLS)
 const executeWithRLS = async (workspaceId: string, operation: (client: any) => Promise<any>) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Define o contexto da sessão para o RLS funcionar (conforme definido no schema.sql)
+    // Define o contexto da sessão para o RLS funcionar
     await client.query("SELECT set_config('app.current_workspace_id', $1, true)", [workspaceId]);
 
     const result = await operation(client);
@@ -57,7 +65,7 @@ const executeWithRLS = async (workspaceId: string, operation: (client: any) => P
   }
 };
 
-// --- MOCK DE EVENT BUS (Para manter a arquitetura) ---
+// --- MOCK DE EVENT BUS ---
 const eventBus = {
   emit: async (topic: string, event: any) => {
     structuredLogger('info', `EVENTO_EMITIDO`, { topic, eventId: randomUUID(), payload: event });
@@ -67,20 +75,22 @@ const eventBus = {
 // --- SERVIDOR FASTIFY ---
 const server: FastifyInstance = Fastify({ logger: false });
 
-// Habilita CORS
+// Habilita CORS (DEPLOY READY)
+// Aceita a URL de produção ou localhost
+const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
+
 server.register(cors, {
-  origin: "http://localhost:3001",
+  origin: frontendUrl, // Permite acesso do frontend
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "If-Match", "Authorization"],
-  exposedHeaders: ["ETag"] // Importante para o Optimistic Locking
+  exposedHeaders: ["ETag"]
 });
 
 // Middleware de Autenticação (Simulado)
-// Injeta o ID do workspace que criamos no SQL ('1c3b9f4a...')
 server.decorateRequest('user', {
     getter: () => ({
-        userId: '99999999-9999-49c0-9eda-3e26b08d3fe6', // O ID válido que inserimos no SQL
-        workspaceId: '1c3b9f4a-7d2e-4c5a-8b1e-0a5d4c3f2b1a' // Workspace "Desenvolvimento Principal"
+        userId: '99999999-9999-49c0-9eda-3e26b08d3fe6',
+        workspaceId: '1c3b9f4a-7d2e-4c5a-8b1e-0a5d4c3f2b1a'
     })
 });
 
@@ -95,8 +105,6 @@ server.addHook('onRequest', async (request, reply) => {
 // ----------------------------------------------------
 server.get('/api/v1/tasks', async (request, reply) => {
     try {
-        // Usa a conexão com RLS. A query NÃO precisa de WHERE workspace_id = ...
-        // A política do Postgres injeta isso automaticamente!
         const tasks = await executeWithRLS(request.user.workspaceId, async (client) => {
             const res = await client.query(`
                 SELECT id, title, status, due_date as "dueDate", version, priority, assignee_id 
@@ -106,10 +114,9 @@ server.get('/api/v1/tasks', async (request, reply) => {
             return res.rows;
         });
 
-        // Mapeia assignee_id para nome (Mock simples para visualização)
         const enrichedTasks = tasks.map((t: any) => ({
             ...t,
-            assignee: 'DevOps' // Simplificação: Na prática faríamos JOIN com users
+            assignee: 'DevOps' // Mock visual para o nome
         }));
 
         return reply.send(enrichedTasks);
@@ -120,7 +127,7 @@ server.get('/api/v1/tasks', async (request, reply) => {
 });
 
 // ----------------------------------------------------
-// 2. ATUALIZAR TAREFA (PUT /api/v1/tasks/:id) - Com Optimistic Locking
+// 2. ATUALIZAR TAREFA (PUT /api/v1/tasks/:id)
 // ----------------------------------------------------
 interface UpdateBody { title: string; }
 
@@ -128,14 +135,12 @@ server.put<{ Params: { taskId: string }, Body: UpdateBody }>('/api/v1/tasks/:tas
     const { taskId } = request.params;
     const { title } = request.body;
 
-    // Validação do If-Match
     const ifMatch = request.headers['if-match'];
     if (!ifMatch) return reply.status(400).send({ error: 'Header If-Match obrigatório' });
     const expectedVersion = parseInt(ifMatch as string, 10);
 
     try {
         const updatedTask = await executeWithRLS(request.user.workspaceId, async (client) => {
-            // 1. Verifica versão atual
             const checkRes = await client.query('SELECT version FROM tasks WHERE id = $1', [taskId]);
 
             if (checkRes.rowCount === 0) {
@@ -144,12 +149,10 @@ server.put<{ Params: { taskId: string }, Body: UpdateBody }>('/api/v1/tasks/:tas
 
             const currentVersion = checkRes.rows[0].version;
 
-            // 2. Lógica de Concorrência
             if (currentVersion !== expectedVersion) {
                 const err: any = new Error('Conflict'); err.status = 409; throw err;
             }
 
-            // 3. Atualiza e Incrementa Versão
             const updateRes = await client.query(`
                 UPDATE tasks 
                 SET title = $1, version = version + 1, updated_at = now()
@@ -160,7 +163,6 @@ server.put<{ Params: { taskId: string }, Body: UpdateBody }>('/api/v1/tasks/:tas
             return updateRes.rows[0];
         });
 
-        // Emite evento
         await eventBus.emit('task.updated', { taskId, version: updatedTask.version });
 
         reply.header('ETag', updatedTask.version.toString());
@@ -168,7 +170,7 @@ server.put<{ Params: { taskId: string }, Body: UpdateBody }>('/api/v1/tasks/:tas
 
     } catch (err: any) {
         if (err.status === 409) {
-            return reply.status(409).send({ code: 'CONFLITO_CONCORRENCIA', message: 'Dados alterados por outro usuário.' });
+            return reply.status(409).send({ code: 'CONFLITO_CONCORRENCIA', message: 'Dados alterados por outro utilizador.' });
         }
         if (err.status === 404) return reply.status(404).send({ error: 'Tarefa não encontrada' });
 
@@ -182,20 +184,30 @@ server.put<{ Params: { taskId: string }, Body: UpdateBody }>('/api/v1/tasks/:tas
 // ----------------------------------------------------
 server.get('/health/ready', async (req, reply) => {
     try {
-        await pool.query('SELECT 1'); // Teste real no DB
+        await pool.query('SELECT 1');
         return { status: 'ok', db: 'connected' };
     } catch (e) {
         return reply.status(503).send({ status: 'error', db: 'disconnected' });
     }
 });
 
+// ----------------------------------------------------
+// INICIALIZAÇÃO DO SERVIDOR (CORRIGIDO PARA RENDER)
+// ----------------------------------------------------
 const start = async () => {
   try {
-    await server.listen({ port: 3000 });
-    console.log(`\n--- Backend Real (Postgres) rodando na porta 3000 ---`);
+    // O Render fornece a porta na variável de ambiente PORT.
+    // Se não existir (local), usa 3000.
+    const port = Number(process.env.PORT) || 3000;
+
+    // IMPORTANTE: host: '0.0.0.0' é obrigatório para Deploy (Docker/Render)
+    await server.listen({ port: port, host: '0.0.0.0' });
+
+    console.log(`\n--- Backend Real (Postgres) a correr na porta ${port} ---`);
   } catch (err) {
     server.log.error(err);
     process.exit(1);
   }
 };
+
 start();
