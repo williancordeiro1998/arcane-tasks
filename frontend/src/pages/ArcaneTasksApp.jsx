@@ -4,7 +4,7 @@ import axios from 'axios';
 /**
  * ArcaneTasksApp.jsx
  * Arquivo único com frontend React (sem dependências específicas de Next)
- * - Mock data + integração com BACKEND_URL via axios
+ * - Integração REAL com Backend via axios.post na criação de tarefas
  * - i18n embutido
  * - Correção do flickering/loop de renderização no polling (useRef)
  * - Persistência de Sessão (LocalStorage) implementada
@@ -23,7 +23,7 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/ap
 const SESSION_KEY = 'arcane_session_v1'; // Chave para o localStorage
 
 /* ---------------------------
-   Mock tasks
+   Mock tasks (Fallback)
    --------------------------- */
 const MOCK_TASKS = [
   { id: 1, title: "Implementar Concorrência Otimista (PUT /tasks/{id})", status: "Em Progresso", assignee: "DevOps", dueDate: "2027-08-20", version: 5, priority: 'High' },
@@ -503,7 +503,7 @@ const TaskCard = ({ task, t, onDetailsClick }) => {
 /* ---------------------------
    MainDashboard (com filtros/ordenacao)
    --------------------------- */
-const MainDashboard = ({ tasks, userId, t, setTasks }) => {
+const MainDashboard = ({ tasks, userId, t, setTasks, onNotify }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTask, setSelectedTask] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
@@ -546,13 +546,39 @@ const MainDashboard = ({ tasks, userId, t, setTasks }) => {
 
   const truncatedUserId = userId ? `${userId.substring(0, 8)}...` : '';
 
-  const handleCreateTask = () => {
+  // ------------------------------------------------------------------
+  //  MODIFICADO: Função para CRIAR tarefa via API REAL
+  // ------------------------------------------------------------------
+  const handleCreateTask = async () => {
     const newTaskTitle = t.taskTitles["Nova Tarefa Criada"] || t.newTask;
-    const tempId = generateUUID();
-    const futureDate = new Date(); futureDate.setMonth(futureDate.getMonth() + 6);
-    const mockNewTask = { id: tempId, title: newTaskTitle, status: 'A Fazer', assignee: t.newMemberAssignee || 'Novo Membro', dueDate: futureDate.toISOString().slice(0, 10), version: 1, priority: 'High' };
-    setTasks(prev => [mockNewTask, ...(Array.isArray(prev) ? prev : [])]);
-    // notifica localmente
+    // O ID é gerado pelo servidor, não precisamos enviar (a menos que o backend exija)
+
+    const futureDate = new Date();
+    futureDate.setMonth(futureDate.getMonth() + 6);
+
+    const payload = {
+        title: newTaskTitle,
+        status: 'A Fazer',
+        assignee: t.newMemberAssignee || 'Novo Membro',
+        dueDate: futureDate.toISOString().slice(0, 10),
+        version: 1,
+        priority: 'High'
+    };
+
+    try {
+        // Chamada real ao Backend
+        const response = await axios.post(BACKEND_URL, payload);
+        const savedTask = response.data;
+
+        // Atualiza estado com o retorno do servidor (incluindo ID real)
+        setTasks(prev => [savedTask, ...(Array.isArray(prev) ? prev : [])]);
+
+        if (onNotify) onNotify({ title: 'Sucesso', body: 'Tarefa salva no banco de dados!', type: 'success' });
+
+    } catch (error) {
+        console.error("Erro ao salvar tarefa no backend:", error);
+        if (onNotify) onNotify({ title: 'Erro', body: 'Falha ao salvar a tarefa no backend.', type: 'error' });
+    }
   };
 
   return (
@@ -784,7 +810,8 @@ export default function ArcaneTasksApp() {
 
       <main className="flex flex-col flex-grow overflow-y-auto pt-16 md:pt-0">
         {currentView === 'dashboard' && <DashboardSummary tasks={tasks} t={t} />}
-        {currentView === 'tasks' && <MainDashboard tasks={tasks} userId={userId} t={t} setTasks={setTasks} />}
+        {/* Passamos onNotify para que o Dashboard possa criar alertas de sucesso/erro */}
+        {currentView === 'tasks' && <MainDashboard tasks={tasks} userId={userId} t={t} setTasks={setTasks} onNotify={setNotification} />}
         {currentView === 'members' && <MembersView t={t} />}
         {currentView === 'settings' && <SettingsView t={t} neonStyle={neonStyleInline} />}
         {currentView === 'metrics' && <MetricsView t={t} neonStyle={neonStyleInline} />}
