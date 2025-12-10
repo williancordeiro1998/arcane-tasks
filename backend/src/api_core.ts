@@ -32,6 +32,9 @@ const pool = new Pool({
   database: 'arcanedb',  // O banco que criamos
   password: '1490',      // <--- SENHA ATUALIZADA AQUI
   port: 5432,
+  // Configuração para SSL (obrigatório na maioria dos bancos cloud em produção)
+  // Localmente (NODE_ENV não definido ou development), ssl é falso.
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
 // Helper para executar transações com contexto de segurança (RLS)

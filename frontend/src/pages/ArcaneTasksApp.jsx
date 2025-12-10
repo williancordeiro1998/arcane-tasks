@@ -18,7 +18,7 @@ const generateUUID = () => {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
 
-const BACKEND_URL = 'http://localhost:3000/api/v1/tasks';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1/tasks';
 
 /* ---------------------------
    Mock tasks
