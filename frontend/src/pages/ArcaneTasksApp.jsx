@@ -6,7 +6,7 @@ import axios from 'axios';
  * Arquivo único com frontend React (sem dependências específicas de Next)
  * - Integração REAL com Backend via axios.post na criação de tarefas
  * - i18n embutido
- * - Correção do flickering/loop de renderização no polling (useRef)
+ * - Correção DEFINITIVA do bug de notificação repetida no Polling
  * - Persistência de Sessão (LocalStorage) implementada
  */
 
@@ -118,7 +118,7 @@ const translations = {
     tasksInProgress: "tarefas em progresso.",
     newMemberAssignee: "Novo Membro",
     notificationTitle: "Atualização em Tempo Real",
-    notificationBody: (title) => `Tarefa "${title}" foi atualizada pelo Worker.`,
+    notificationBody: (count) => `Recebida(s) ${count} nova(s) tarefa(s) via Polling.`,
     filterPriorityHigh: "Alta",
     filterPriorityMedium: "Média",
     filterPriorityLow: "Baixa",
@@ -210,7 +210,7 @@ const translations = {
     tasksInProgress: "tasks in progress.",
     newMemberAssignee: "New Member",
     notificationTitle: "Real-Time Update",
-    notificationBody: (title) => `Task "${title}" was updated by the Worker.`,
+    notificationBody: (count) => `Received ${count} new task(s) via Polling.`,
     filterPriorityHigh: "High",
     filterPriorityMedium: "Medium",
     filterPriorityLow: "Low",
@@ -712,51 +712,60 @@ export default function ArcaneTasksApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // ** CORREÇÃO DO FLICKERING/LOOP DE POLLING:
-  // Usar useRef para manter uma referência ao estado 'tasks'
-  const tasksRef = useRef(tasks);
-  useEffect(() => {
-      tasksRef.current = tasks;
-  }, [tasks]);
-
+  // ** CORREÇÃO DO POLLING BUG:
+  // lastRemoteCountRef armazena a contagem de tarefas REAIS do backend na última requisição.
+  // Isso evita comparações erradas com o estado local misturado.
+  const lastRemoteCountRef = useRef(0);
 
   const fetchTasks = useCallback(async (opts = { background: false }) => {
     if (!isAuthenticated) return;
     if (!opts.background) setIsLoading(true);
+
     try {
       const response = await axios.get(BACKEND_URL);
       const remote = Array.isArray(response.data) ? response.data : [];
+      const currentRemoteCount = remote.length;
 
+      // Atualiza o estado: Mantém locais (se existirem e não estiverem no remoto) e atualiza com os remotos
       setTasks(prev => {
-        const localOnly = (Array.isArray(prev) ? prev : []).filter(p => !remote.find(r => r.id === p.id));
-        return [...localOnly, ...remote];
+        // Opcional: Manter tarefas locais que ainda não foram salvas (aqui assumimos que o backend é a verdade absoluta)
+        // Para simplificar e evitar duplicação visual, substituímos pelos remotos,
+        // mas você pode manter mocks se desejar:
+        // const localOnly = (Array.isArray(prev) ? prev : []).filter(p => typeof p.id === 'string'); // Ex: IDs temporários são strings
+        return remote;
       });
 
-      const remoteCount = remote.length;
-      const localCount = (Array.isArray(tasksRef.current) ? tasksRef.current.filter(x => typeof x.id === 'number').length : 0);
-
-      if (remoteCount > localCount) {
-        setNotification({ title: t.notificationTitle, body: `Recebida(s) ${remoteCount - localCount} nova(s) tarefa(s) via Polling.`, type: 'success' });
+      // Lógica de Notificação: Só avisa se o número de tarefas no servidor AUMENTOU
+      if (opts.background && currentRemoteCount > lastRemoteCountRef.current && lastRemoteCountRef.current > 0) {
+         const diff = currentRemoteCount - lastRemoteCountRef.current;
+         setNotification({
+             title: t.notificationTitle,
+             body: t.notificationBody(diff),
+             type: 'success'
+         });
       }
+
+      // Atualiza a referência para a próxima comparação
+      lastRemoteCountRef.current = currentRemoteCount;
+
     } catch (error) {
       console.error("Erro ao buscar tarefas do backend. Usando mock:", error.message);
-      setTasks(prev => {
-        const localOnly = (Array.isArray(prev) ? prev : []).filter(p => typeof p.id === 'string');
-        return [...localOnly, ...MOCK_TASKS];
-      });
+      // Fallback silencioso ou manter estado anterior
     } finally {
       if (!opts.background) setIsLoading(false);
     }
   }, [isAuthenticated, t]);
 
+  // Polling Effect
   useEffect(() => {
     if (isAuthenticated) {
-      fetchTasks();
+      fetchTasks(); // Busca inicial imediata
       const interval = setInterval(() => fetchTasks({ background: true }), 5000);
       return () => clearInterval(interval);
     }
-  }, [isAuthenticated, fetchTasks, lang]);
+  }, [isAuthenticated, fetchTasks]);
 
+  // Auto-dismiss notification
   useEffect(() => {
     if (notification) {
       const timer = setTimeout(() => setNotification(null), 4000);
@@ -779,6 +788,7 @@ export default function ArcaneTasksApp() {
     setTasks(MOCK_TASKS);
     setCurrentView('tasks');
     setNotification(null);
+    lastRemoteCountRef.current = 0; // Resetar contador
   }, []);
 
   // Se ainda estiver checando o localStorage, mostra loading
