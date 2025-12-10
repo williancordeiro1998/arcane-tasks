@@ -4,7 +4,6 @@ import { Pool } from 'pg'; // Driver do PostgreSQL
 import { randomUUID } from 'crypto';
 
 // --- CONFIGURAÇÃO DE TIPAGEM ---
-// Estende o tipo Request para incluir o objeto 'user'
 declare module 'fastify' {
   interface FastifyRequest {
     user: {
@@ -26,19 +25,18 @@ const structuredLogger = (level: string, message: string, data: any = {}) => {
 };
 
 // --- CONEXÃO COM A BASE DE DADOS (DEPLOY READY) ---
-// Tenta usar a variável de ambiente (Nuvem). Se não tiver, usa a configuração local.
 const connectionString = process.env.DATABASE_URL;
 
 const poolConfig = connectionString
   ? {
       connectionString,
-      ssl: { rejectUnauthorized: false } // Obrigatório para Render/Neon em produção
+      ssl: { rejectUnauthorized: false }
     }
   : {
       user: 'postgres',
       host: 'localhost',
       database: 'arcanedb',
-      password: '1490', // A sua palavra-passe local
+      password: '1490',
       port: 5432,
       ssl: false
     };
@@ -50,11 +48,8 @@ const executeWithRLS = async (workspaceId: string, operation: (client: any) => P
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Define o contexto da sessão para o RLS funcionar
     await client.query("SELECT set_config('app.current_workspace_id', $1, true)", [workspaceId]);
-
     const result = await operation(client);
-
     await client.query('COMMIT');
     return result;
   } catch (e) {
@@ -75,18 +70,13 @@ const eventBus = {
 // --- SERVIDOR FASTIFY ---
 const server: FastifyInstance = Fastify({ logger: false });
 
-// Habilita CORS (DEPLOY READY)
-// Aceita a URL de produção ou localhost
-const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
-
 server.register(cors, {
-  origin: frontendUrl, // Permite acesso do frontend
+  origin: process.env.FRONTEND_URL || "http://localhost:3001",
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "If-Match", "Authorization"],
   exposedHeaders: ["ETag"]
 });
 
-// Middleware de Autenticação (Simulado)
 server.decorateRequest('user', {
     getter: () => ({
         userId: '99999999-9999-49c0-9eda-3e26b08d3fe6',
@@ -116,7 +106,7 @@ server.get('/api/v1/tasks', async (request, reply) => {
 
         const enrichedTasks = tasks.map((t: any) => ({
             ...t,
-            assignee: 'DevOps' // Mock visual para o nome
+            assignee: 'DevOps'
         }));
 
         return reply.send(enrichedTasks);
@@ -127,7 +117,50 @@ server.get('/api/v1/tasks', async (request, reply) => {
 });
 
 // ----------------------------------------------------
-// 2. ATUALIZAR TAREFA (PUT /api/v1/tasks/:id)
+// 2. CRIAR TAREFA (POST /api/v1/tasks) - NOVO!
+// ----------------------------------------------------
+interface CreateBody { title: string; status?: string; priority?: string; dueDate?: string; }
+
+server.post<{ Body: CreateBody }>('/api/v1/tasks', async (request, reply) => {
+    const { title, status, priority, dueDate } = request.body;
+
+    try {
+        const newTask = await executeWithRLS(request.user.workspaceId, async (client) => {
+            // Insere usando SQL real e retorna o objeto criado
+            const res = await client.query(`
+                INSERT INTO tasks (
+                    title, status, priority, due_date, 
+                    workspace_id, assignee_id, version, created_at, updated_at
+                )
+                VALUES (
+                    $1, $2, $3, $4, 
+                    $5, $6, 1, now(), now()
+                )
+                RETURNING id, title, status, due_date as "dueDate", version, priority, assignee_id
+            `, [
+                title,
+                status || 'A Fazer',
+                priority || 'Medium',
+                dueDate || new Date().toISOString(), // Fallback para data atual se não enviada
+                request.user.workspaceId,
+                request.user.userId
+            ]);
+            return res.rows[0];
+        });
+
+        await eventBus.emit('task.created', { taskId: newTask.id });
+
+        // Retorna 201 Created com a tarefa nova
+        return reply.status(201).send(newTask);
+
+    } catch (err: any) {
+        structuredLogger('error', 'CREATE_FAIL', { msg: err.message });
+        return reply.status(500).send({ error: 'Erro ao criar tarefa' });
+    }
+});
+
+// ----------------------------------------------------
+// 3. ATUALIZAR TAREFA (PUT /api/v1/tasks/:id)
 // ----------------------------------------------------
 interface UpdateBody { title: string; }
 
@@ -170,7 +203,7 @@ server.put<{ Params: { taskId: string }, Body: UpdateBody }>('/api/v1/tasks/:tas
 
     } catch (err: any) {
         if (err.status === 409) {
-            return reply.status(409).send({ code: 'CONFLITO_CONCORRENCIA', message: 'Dados alterados por outro utilizador.' });
+            return reply.status(409).send({ code: 'CONFLITO_CONCORRENCIA', message: 'Dados alterados por outro usuário.' });
         }
         if (err.status === 404) return reply.status(404).send({ error: 'Tarefa não encontrada' });
 
@@ -180,7 +213,7 @@ server.put<{ Params: { taskId: string }, Body: UpdateBody }>('/api/v1/tasks/:tas
 });
 
 // ----------------------------------------------------
-// 3. Health Check
+// 4. Health Check
 // ----------------------------------------------------
 server.get('/health/ready', async (req, reply) => {
     try {
@@ -191,23 +224,14 @@ server.get('/health/ready', async (req, reply) => {
     }
 });
 
-// ----------------------------------------------------
-// INICIALIZAÇÃO DO SERVIDOR (CORRIGIDO PARA RENDER)
-// ----------------------------------------------------
 const start = async () => {
   try {
-    // O Render fornece a porta na variável de ambiente PORT.
-    // Se não existir (local), usa 3000.
     const port = Number(process.env.PORT) || 3000;
-
-    // IMPORTANTE: host: '0.0.0.0' é obrigatório para Deploy (Docker/Render)
     await server.listen({ port: port, host: '0.0.0.0' });
-
-    console.log(`\n--- Backend Real (Postgres) a correr na porta ${port} ---`);
+    console.log(`\n--- Backend Real (Postgres) rodando na porta ${port} ---`);
   } catch (err) {
     server.log.error(err);
     process.exit(1);
   }
 };
-
 start();
