@@ -11,3 +11,5 @@ package-lock.json
 .env.local
 .env.development.local.DS_Store
 Thumbs.db
+build
+coverage

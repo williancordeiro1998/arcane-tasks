@@ -2,40 +2,67 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import axios from 'axios';
 
 /**
- * ArcaneTasksApp.jsx
- * Arquivo único com frontend React (sem dependências específicas de Next)
- * - Integração REAL com Backend via axios.post na criação de tarefas
- * - i18n embutido
- * - Correção DEFINITIVA do bug de notificação repetida no Polling
- * - Persistência de Sessão (LocalStorage) implementada
+ * ArcaneTasksApp.tsx
+ * Versão TypeScript completa com interfaces e tipagem forte.
  */
+
+/* ---------------------------
+   Interfaces & Types
+   --------------------------- */
+
+interface Task {
+  id: string | number;
+  title: string;
+  status: string;
+  assignee: string;
+  dueDate: string;
+  version: number;
+  priority: 'High' | 'Medium' | 'Low' | string;
+}
+
+interface NotificationMsg {
+  title: string;
+  body: string;
+  type: 'info' | 'success' | 'error';
+}
+
+interface LoginData {
+  userId: string;
+}
+
+// Tipo simplificado para o objeto de traduções
+type TranslationKeys = {
+  [key: string]: string | ((arg: any) => string) | any;
+};
+
+type LanguageMap = {
+  [lang: string]: TranslationKeys;
+};
 
 /* ---------------------------
    Utilitários
    --------------------------- */
-const generateUUID = () => {
+const generateUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  // @ts-ignore
   if (typeof self !== 'undefined' && self.crypto && self.crypto.randomUUID) return self.crypto.randomUUID();
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1/tasks';
-const SESSION_KEY = 'arcane_session_v1'; // Chave para o localStorage
+const SESSION_KEY = 'arcane_session_v1';
 
 /* ---------------------------
-   Mock tasks (Fallback)
+   Mock tasks
    --------------------------- */
-const MOCK_TASKS = [
-  { id: 1, title: "Implementar Concorrência Otimista (PUT /tasks/{id})", status: "Em Progresso", assignee: "DevOps", dueDate: "2027-08-20", version: 5, priority: 'High' },
-  { id: 2, title: "Configurar RLS no PostgreSQL", status: "Concluído", assignee: "Security", dueDate: "2027-01-10", version: 2, priority: 'Medium' },
-  { id: 3, title: "Criar Dashboard Grafana de Latência p95", status: "A Fazer", assignee: "Infra", dueDate: "2027-05-15", version: 1, priority: 'High' },
-  { id: 4, title: "Revisar Pipeline E2E Playwright", status: "Em Progresso", assignee: "QA", dueDate: "2027-09-01", version: 3, priority: 'Medium' },
+const MOCK_TASKS: Task[] = [
+  { id: 1, title: "Exemplo: Backend Offline", status: "A Fazer", assignee: "Sistema", dueDate: "2027-01-01", version: 1, priority: 'Low' },
 ];
 
 /* ---------------------------
    Translations (i18n)
    --------------------------- */
-const translations = {
+const translations: LanguageMap = {
   pt: {
     appTitle: "ArcaneTasks",
     appSubtitle: "Plataforma Colaborativa Completa",
@@ -50,19 +77,8 @@ const translations = {
     statusTodo: "A Fazer",
     statusInProgress: "Em Progresso",
     statusDone: "Concluído",
-    statusMapping: {
-      "A Fazer": "A Fazer",
-      "Em Progresso": "Em Progresso",
-      "Concluído": "Concluído",
-    },
-    taskTitles: {
-      "Implementar Concorrência Otimista (PUT /tasks/{id})": "Implementar Concorrência Otimista (PUT /tasks/{id})",
-      "Configurar RLS no PostgreSQL": "Configurar RLS no PostgreSQL",
-      "Criar Dashboard Grafana de Latência p95": "Criar Dashboard Grafana de Latência p95",
-      "Revisar Pipeline E2E Playwright": "Revisar Pipeline E2E Playwright",
-      "Tarefa Atualizada V6": "Tarefa Atualizada V6",
-      "Nova Tarefa Criada": "Nova Tarefa de Teste (Criada Agora)",
-    },
+    statusMapping: { "A Fazer": "A Fazer", "Em Progresso": "Em Progresso", "Concluído": "Concluído" },
+    taskTitles: { "Nova Tarefa Criada": "Nova Tarefa" },
     responsible: "Responsável",
     dueDate: "Prazo",
     versionLocking: "Versão (Lógica)",
@@ -72,17 +88,16 @@ const translations = {
     detailsAssignedTo: "Atribuído a",
     detailsStatus: "Status Atual",
     detailsVersion: "Versão de Concorrência",
-    detailsCreated: "Criada em",
     workspaceTitle: "Workspace Principal",
     sessionID: "Bem-vindo! Seu ID de Sessão:",
     newTask: "Nova Tarefa",
-    searchPlaceholder: "Buscar Tarefas (Full-text search)",
+    searchPlaceholder: "Buscar Tarefas",
     filterStatus: "Filtrar por Status",
     filterDueDate: "Prazo",
     priorityHigh: "Prioridade (Alta)",
     filterSort: "Ordenar por",
     noTasksFound: "Nenhuma tarefa encontrada.",
-    loadingData: "Carregando tarefas do backend...",
+    loadingData: "Sincronizando...",
     restoringSession: "Restaurando sessão...",
     summaryTasks: "Tarefas Ativas/Total",
     summaryUsers: "Membros do Workspace",
@@ -118,7 +133,7 @@ const translations = {
     tasksInProgress: "tarefas em progresso.",
     newMemberAssignee: "Novo Membro",
     notificationTitle: "Atualização em Tempo Real",
-    notificationBody: (count) => `Recebida(s) ${count} nova(s) tarefa(s) via Polling.`,
+    notificationBody: (count: number) => `Recebida(s) ${count} nova(s) tarefa(s) via Polling.`,
     filterPriorityHigh: "Alta",
     filterPriorityMedium: "Média",
     filterPriorityLow: "Baixa",
@@ -142,19 +157,8 @@ const translations = {
     statusTodo: "To Do",
     statusInProgress: "In Progress",
     statusDone: "Done",
-    statusMapping: {
-      "A Fazer": "To Do",
-      "Em Progresso": "In Progress",
-      "Concluído": "Done",
-    },
-    taskTitles: {
-      "Implementar Concorrência Otimista (PUT /tasks/{id})": "Implement Optimistic Concurrency (PUT /tasks/{id})",
-      "Configurar RLS no PostgreSQL": "Configure RLS on PostgreSQL",
-      "Criar Dashboard Grafana de Latência p95": "Create Grafana p95 Latency Dashboard",
-      "Revisar Pipeline E2E Playwright": "Review Playwright E2E Pipeline",
-      "Tarefa Atualizada V6": "Updated Task V6",
-      "Nova Tarefa Criada": "New Test Task (Created Now)",
-    },
+    statusMapping: { "A Fazer": "To Do", "Em Progresso": "In Progress", "Concluído": "Done" },
+    taskTitles: { "Nova Tarefa Criada": "New Task" },
     responsible: "Assignee",
     dueDate: "Due Date",
     versionLocking: "Concurrency Version",
@@ -164,17 +168,16 @@ const translations = {
     detailsAssignedTo: "Assigned to",
     detailsStatus: "Current Status",
     detailsVersion: "Concurrency Version",
-    detailsCreated: "Created on",
     workspaceTitle: "Main Workspace",
     sessionID: "Welcome! Your Session ID:",
     newTask: "New Task",
-    searchPlaceholder: "Search Tasks (Full-text search)",
+    searchPlaceholder: "Search Tasks",
     filterStatus: "Filter by Status",
     filterDueDate: "Due Date",
     priorityHigh: "High Priority",
     filterSort: "Sort by",
     noTasksFound: "No tasks found.",
-    loadingData: "Loading tasks from backend...",
+    loadingData: "Syncing...",
     restoringSession: "Restoring session...",
     summaryTasks: "Active Tasks/Total",
     summaryUsers: "Workspace Members",
@@ -210,7 +213,7 @@ const translations = {
     tasksInProgress: "tasks in progress.",
     newMemberAssignee: "New Member",
     notificationTitle: "Real-Time Update",
-    notificationBody: (count) => `Received ${count} new task(s) via Polling.`,
+    notificationBody: (count: number) => `Received ${count} new task(s) via Polling.`,
     filterPriorityHigh: "High",
     filterPriorityMedium: "Medium",
     filterPriorityLow: "Low",
@@ -225,7 +228,7 @@ const translations = {
 /* ---------------------------
    IconMap & Neon styles
    --------------------------- */
-const IconMap = {
+const IconMap: { [key: string]: string } = {
   Dashboard: '🔮', Tasks: '📜', Members: '👁️‍🗨️', Settings: '✨', Metrics: '📊',
   Logout: '🌌', Search: '🔍', NewTask: '⭐', StatusTodo: '🌑', StatusInProgress: '🌓',
   StatusDone: '🌕', RealTime: '🌀', Loading: '💫',
@@ -235,13 +238,13 @@ const neonStyleInline = { color: '#a5b4fc', textShadow: '0 0 5px #4f46e5, 0 0 10
 const neonTextClass = "text-indigo-400 font-semibold";
 
 /* ---------------------------
-   NotificationToast component
+   NotificationToast
    --------------------------- */
-const NotificationToast = ({ message, type = 'info', onClose }) => {
+const NotificationToast: React.FC<{ message: NotificationMsg | null; type?: string; onClose: () => void }> = ({ message, type = 'info', onClose }) => {
   if (!message) return null;
-  const colors = { info: 'bg-indigo-600', success: 'bg-green-600', error: 'bg-red-600' };
+  const colors: { [key: string]: string } = { info: 'bg-indigo-600', success: 'bg-green-600', error: 'bg-red-600' };
   return (
-    <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white ${colors[type]}`} role="status">
+    <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white ${colors[type] || colors.info}`} role="status">
       <div className="flex items-center">
         <span className="text-xl mr-3">🔔</span>
         <div>
@@ -257,7 +260,7 @@ const NotificationToast = ({ message, type = 'info', onClose }) => {
 /* ---------------------------
    TaskDetailModal
    --------------------------- */
-const TaskDetailModal = ({ task, t, onClose }) => {
+const TaskDetailModal: React.FC<{ task: Task | null; t: TranslationKeys; onClose: () => void }> = ({ task, t, onClose }) => {
   if (!task) return null;
   const statusText = t.statusMapping[task.status] || task.status;
   return (
@@ -280,7 +283,7 @@ const TaskDetailModal = ({ task, t, onClose }) => {
 /* ---------------------------
    DashboardSummary
    --------------------------- */
-const DashboardSummary = ({ tasks, t }) => {
+const DashboardSummary: React.FC<{ tasks: Task[]; t: TranslationKeys }> = ({ tasks, t }) => {
   const activeTasks = (Array.isArray(tasks) ? tasks.filter(x => x.status !== 'Concluído') : []).length;
   const totalTasks = Array.isArray(tasks) ? tasks.length : 0;
   return (
@@ -307,11 +310,9 @@ const DashboardSummary = ({ tasks, t }) => {
 /* ---------------------------
    MembersView
    --------------------------- */
-const MembersView = ({ t }) => {
-  const getLoginStatusText = (time) => {
-    if (typeof time === 'string' && time.includes('min ago')) {
-      return `${parseInt(time)} ${t.minutesAgo || 'min ago'}`;
-    }
+const MembersView: React.FC<{ t: TranslationKeys }> = ({ t }) => {
+  const getLoginStatusText = (time: string) => {
+    if (typeof time === 'string' && time.includes('min ago')) return `${parseInt(time)} ${t.minutesAgo || 'min ago'}`;
     return time;
   };
   const members = [
@@ -351,7 +352,7 @@ const MembersView = ({ t }) => {
 /* ---------------------------
    SettingsView
    --------------------------- */
-const SettingsView = ({ t, neonStyle }) => {
+const SettingsView: React.FC<{ t: TranslationKeys; neonStyle: React.CSSProperties }> = ({ t, neonStyle }) => {
   const features = [
     { name: t.settingsRLS, status: t.settingsStatusOn, icon: '🔒', color: 'text-green-500', desc: t.settingsRLSDesc },
     { name: t.settingsConcurrency, status: t.settingsStatusOn, icon: '⚔️', color: 'text-green-500', desc: t.settingsConcurrencyDesc },
@@ -381,7 +382,7 @@ const SettingsView = ({ t, neonStyle }) => {
 /* ---------------------------
    MetricsView
    --------------------------- */
-const MetricsView = ({ t, neonStyle }) => {
+const MetricsView: React.FC<{ t: TranslationKeys; neonStyle: React.CSSProperties }> = ({ t, neonStyle }) => {
   const metricsData = [
     { name: t.metricsLatency, value: "185ms", target: "200ms", status: 'ok', icon: '🚀' },
     { name: t.metricsQueue, value: "2/1000", target: "100", status: 'ok', icon: '📈' },
@@ -404,7 +405,6 @@ const MetricsView = ({ t, neonStyle }) => {
           </div>
         ))}
       </div>
-
       <div className="mt-8 bg-white p-6 rounded-xl shadow-lg">
         <h3 className="text-lg font-semibold mb-3">{t.metricsLatencyGraph}</h3>
         <div className="h-40 bg-gray-100 p-2 rounded relative">
@@ -423,7 +423,16 @@ const MetricsView = ({ t, neonStyle }) => {
 /* ---------------------------
    Sidebar
    --------------------------- */
-const Sidebar = ({ currentView, setView, lang, setLang, t, onLogout }) => {
+interface SidebarProps {
+  currentView: string;
+  setView: (view: string) => void;
+  lang: string;
+  setLang: (lang: string) => void;
+  t: TranslationKeys;
+  onLogout: () => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, lang, setLang, t, onLogout }) => {
   const navItems = [
     { name: t.menuDashboard, iconKey: 'Dashboard', view: 'dashboard' },
     { name: t.menuTasks, iconKey: 'Tasks', view: 'tasks' },
@@ -462,7 +471,13 @@ const Sidebar = ({ currentView, setView, lang, setLang, t, onLogout }) => {
 /* ---------------------------
    TaskCard
    --------------------------- */
-const TaskCard = ({ task, t, onDetailsClick }) => {
+interface TaskCardProps {
+  task: Task;
+  t: TranslationKeys;
+  onDetailsClick: (task: Task) => void;
+}
+
+const TaskCard: React.FC<TaskCardProps> = ({ task, t, onDetailsClick }) => {
   const statusText = t.statusMapping[task.status] || task.status;
   const iconKey = useMemo(() => {
     if (statusText === t.statusTodo || task.status === 'A Fazer') return 'StatusTodo';
@@ -471,11 +486,13 @@ const TaskCard = ({ task, t, onDetailsClick }) => {
     return 'StatusTodo';
   }, [statusText, t.statusTodo, t.statusInProgress, t.statusDone, task.status]);
 
-  const statusColors = useMemo(() => ({
-    [t.statusTodo]: { bg: 'bg-gray-200 text-gray-800', icon: IconMap.StatusTodo },
-    [t.statusInProgress]: { bg: 'bg-yellow-100 text-yellow-800', icon: IconMap.StatusInProgress, iconClass: 'animate-spin' },
-    [t.statusDone]: { bg: 'bg-green-100 text-green-800', icon: IconMap.StatusDone },
-  }), [t.statusTodo, t.statusInProgress, t.statusDone]);
+  const statusColors = useMemo(() => {
+    return {
+      [t.statusTodo]: { bg: 'bg-gray-200 text-gray-800', icon: IconMap.StatusTodo },
+      [t.statusInProgress]: { bg: 'bg-yellow-100 text-yellow-800', icon: IconMap.StatusInProgress, iconClass: 'animate-spin' },
+      [t.statusDone]: { bg: 'bg-green-100 text-green-800', icon: IconMap.StatusDone },
+    } as any;
+  }, [t.statusTodo, t.statusInProgress, t.statusDone]);
 
   const { bg, text, iconClass = '' } = statusColors[statusText] || {};
   const priorityColor = task.priority === 'High' ? 'text-red-500' : 'text-blue-500';
@@ -501,83 +518,62 @@ const TaskCard = ({ task, t, onDetailsClick }) => {
 };
 
 /* ---------------------------
-   MainDashboard (com filtros/ordenacao)
+   MainDashboard
    --------------------------- */
-const MainDashboard = ({ tasks, userId, t, setTasks, onNotify }) => {
+interface MainDashboardProps {
+  tasks: Task[];
+  userId: string | null;
+  t: TranslationKeys;
+  setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
+  onNotify: (msg: NotificationMsg) => void;
+}
+
+const MainDashboard: React.FC<MainDashboardProps> = ({ tasks, userId, t, setTasks, onNotify }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTask, setSelectedTask] = useState(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [sortKey, setSortKey] = useState('dueDate');
 
   const filteredTasks = useMemo(() => {
     let filtered = Array.isArray(tasks) ? tasks.slice() : [];
-
     if (searchTerm) {
       const low = searchTerm.toLowerCase();
-      filtered = filtered.filter(task =>
-        (task.title || '').toLowerCase().includes(low) || (task.assignee || '').toLowerCase().includes(low)
-      );
+      filtered = filtered.filter(task => (task.title || '').toLowerCase().includes(low) || (task.assignee || '').toLowerCase().includes(low));
     }
-
-    if (statusFilter) {
-      filtered = filtered.filter(task => task.status === statusFilter);
-    }
-
-    if (priorityFilter) {
-      filtered = filtered.filter(task => {
-        if (!task.priority) return false;
-        return task.priority.toLowerCase() === priorityFilter;
-      });
-    }
-
+    if (statusFilter) filtered = filtered.filter(task => task.status === statusFilter);
+    if (priorityFilter) filtered = filtered.filter(task => task.priority && task.priority.toLowerCase() === priorityFilter);
     filtered.sort((a, b) => {
-      if (sortKey === 'dueDate') return new Date(a.dueDate) - new Date(b.dueDate);
+      if (sortKey === 'dueDate') return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
       if (sortKey === 'priority') {
-        const order = { High: 3, Medium: 2, Low: 1 };
+        const order: { [key: string]: number } = { High: 3, Medium: 2, Low: 1 };
         return (order[b.priority] || 0) - (order[a.priority] || 0);
       }
       if (sortKey === 'version') return (b.version || 0) - (a.version || 0);
       return 0;
     });
-
     return filtered;
   }, [tasks, searchTerm, statusFilter, priorityFilter, sortKey]);
 
   const truncatedUserId = userId ? `${userId.substring(0, 8)}...` : '';
 
-  // ------------------------------------------------------------------
-  //  MODIFICADO: Função para CRIAR tarefa via API REAL
-  // ------------------------------------------------------------------
   const handleCreateTask = async () => {
     const newTaskTitle = t.taskTitles["Nova Tarefa Criada"] || t.newTask;
-    // O ID é gerado pelo servidor, não precisamos enviar (a menos que o backend exija)
-
-    const futureDate = new Date();
-    futureDate.setMonth(futureDate.getMonth() + 6);
-
+    const futureDate = new Date(); futureDate.setMonth(futureDate.getMonth() + 6);
     const payload = {
-        title: newTaskTitle,
-        status: 'A Fazer',
-        assignee: t.newMemberAssignee || 'Novo Membro',
-        dueDate: futureDate.toISOString().slice(0, 10),
-        version: 1,
-        priority: 'High'
+        title: newTaskTitle, status: 'A Fazer', assignee: t.newMemberAssignee || 'Novo Membro',
+        dueDate: futureDate.toISOString().slice(0, 10), version: 1, priority: 'High'
     };
 
     try {
-        // Chamada real ao Backend
-        const response = await axios.post(BACKEND_URL, payload);
+        const response = await axios.post<Task>(BACKEND_URL, payload);
         const savedTask = response.data;
-
-        // Atualiza estado com o retorno do servidor (incluindo ID real)
+        // Atualiza estado
         setTasks(prev => [savedTask, ...(Array.isArray(prev) ? prev : [])]);
-
         if (onNotify) onNotify({ title: 'Sucesso', body: 'Tarefa salva no banco de dados!', type: 'success' });
-
     } catch (error) {
-        console.error("Erro ao salvar tarefa no backend:", error);
-        if (onNotify) onNotify({ title: 'Erro', body: 'Falha ao salvar a tarefa no backend.', type: 'error' });
+        console.error("Erro ao salvar tarefa:", error);
+        if (onNotify) onNotify({ title: 'Erro', body: 'Falha ao salvar a tarefa. Verifique o backend.', type: 'error' });
     }
   };
 
@@ -593,14 +589,11 @@ const MainDashboard = ({ tasks, userId, t, setTasks, onNotify }) => {
           <span className="text-lg mr-2" style={neonStyleInline}>{IconMap.NewTask}</span>{t.newTask}
         </button>
       </header>
-
       <div className="flex flex-col md:flex-row gap-6 mb-8">
         <div className="relative flex-grow">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">{IconMap.Search}</span>
           <input type="text" placeholder={t.searchPlaceholder} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full py-3 pl-12 pr-4 border border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-shadow shadow-md text-gray-900 placeholder-gray-500" />
         </div>
-
-        {/* Filtros + Ordenação */}
         <div className="flex gap-4 flex-wrap justify-end items-center">
           <select className="py-3 px-4 border border-gray-300 rounded-xl shadow-md text-sm bg-gray-100 text-gray-900" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">{t.filterStatus}</option>
@@ -608,14 +601,12 @@ const MainDashboard = ({ tasks, userId, t, setTasks, onNotify }) => {
             <option value="Em Progresso">{t.statusInProgress}</option>
             <option value="Concluído">{t.statusDone}</option>
           </select>
-
           <select className="py-3 px-4 border border-gray-300 rounded-xl shadow-md text-sm bg-gray-100 text-gray-900" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
             <option value="">{t.priorityHigh ? 'Prioridade' : 'Priority'}</option>
             <option value="high">{t.filterPriorityHigh}</option>
             <option value="medium">{t.filterPriorityMedium}</option>
             <option value="low">{t.filterPriorityLow}</option>
           </select>
-
           <select className="py-3 px-4 border border-gray-300 rounded-xl shadow-md text-sm bg-gray-100 text-gray-900" value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
             <option value="dueDate">{t.sortByDate}</option>
             <option value="priority">{t.sortByPriority}</option>
@@ -623,7 +614,6 @@ const MainDashboard = ({ tasks, userId, t, setTasks, onNotify }) => {
           </select>
         </div>
       </div>
-
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {Array.isArray(tasks) && tasks.length > 0 ? filteredTasks.map(task => <TaskCard key={task.id} task={task} t={t} onDetailsClick={setSelectedTask} />) : (
           <div className="col-span-full text-center py-10 bg-gray-50 rounded-xl"><p className="text-gray-500">{t.noTasksFound}</p></div>
@@ -636,12 +626,17 @@ const MainDashboard = ({ tasks, userId, t, setTasks, onNotify }) => {
 /* ---------------------------
    LoginPage
    --------------------------- */
-const LoginPage = ({ onLogin, t }) => {
+interface LoginPageProps {
+  onLogin: (data: LoginData) => void;
+  t: TranslationKeys;
+}
+
+const LoginPage: React.FC<LoginPageProps> = ({ onLogin, t }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = useCallback((e) => {
+  const handleLogin = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setTimeout(() => {
@@ -678,23 +673,22 @@ const LoginPage = ({ onLogin, t }) => {
 };
 
 /* ---------------------------
-   Main App (ArcaneTasksApp)
+   Main App
    --------------------------- */
 export default function ArcaneTasksApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userId, setUserId] = useState(null);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Estado para checagem inicial
-
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [currentView, setCurrentView] = useState('tasks');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lang, setLang] = useState('pt');
-  const [tasks, setTasks] = useState(MOCK_TASKS);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [notification, setNotification] = useState(null);
+  const [notification, setNotification] = useState<NotificationMsg | null>(null);
 
   const t = translations[lang] || translations['pt'];
 
-  // ** 1. PERSISTÊNCIA: Restaurar sessão ao montar o componente
+  // ** 1. PERSISTÊNCIA (Sessão)
   useEffect(() => {
     const storedSession = localStorage.getItem(SESSION_KEY);
     if (storedSession) {
@@ -705,67 +699,66 @@ export default function ArcaneTasksApp() {
           setIsAuthenticated(true);
         }
       } catch (e) {
-        console.error("Erro ao restaurar sessão:", e);
         localStorage.removeItem(SESSION_KEY);
       }
     }
     setIsCheckingAuth(false);
   }, []);
 
-  // ** CORREÇÃO DO POLLING BUG:
-  // lastRemoteCountRef armazena a contagem de tarefas REAIS do backend na última requisição.
-  // Isso evita comparações erradas com o estado local misturado.
-  const lastRemoteCountRef = useRef(0);
+  // ** CORREÇÃO DE NOTIFICAÇÃO (SET de IDs)
+  // knownIdsRef agora tipado para aceitar string ou number
+  const knownIdsRef = useRef<Set<string | number>>(new Set());
+  const isFirstLoadRef = useRef(true);
 
   const fetchTasks = useCallback(async (opts = { background: false }) => {
     if (!isAuthenticated) return;
     if (!opts.background) setIsLoading(true);
 
     try {
-      const response = await axios.get(BACKEND_URL);
+      const response = await axios.get<Task[]>(BACKEND_URL);
       const remote = Array.isArray(response.data) ? response.data : [];
-      const currentRemoteCount = remote.length;
 
-      // Atualiza o estado: Mantém locais (se existirem e não estiverem no remoto) e atualiza com os remotos
-      setTasks(prev => {
-        // Opcional: Manter tarefas locais que ainda não foram salvas (aqui assumimos que o backend é a verdade absoluta)
-        // Para simplificar e evitar duplicação visual, substituímos pelos remotos,
-        // mas você pode manter mocks se desejar:
-        // const localOnly = (Array.isArray(prev) ? prev : []).filter(p => typeof p.id === 'string'); // Ex: IDs temporários são strings
-        return remote;
-      });
+      // Extrai todos os IDs recebidos agora
+      const currentIds = new Set(remote.map(t => t.id));
 
-      // Lógica de Notificação: Só avisa se o número de tarefas no servidor AUMENTOU
-      if (opts.background && currentRemoteCount > lastRemoteCountRef.current && lastRemoteCountRef.current > 0) {
-         const diff = currentRemoteCount - lastRemoteCountRef.current;
-         setNotification({
-             title: t.notificationTitle,
-             body: t.notificationBody(diff),
-             type: 'success'
-         });
+      // Calcula quantos são "novos"
+      if (!isFirstLoadRef.current && opts.background) {
+         const newCount = remote.filter(t => !knownIdsRef.current.has(t.id)).length;
+         if (newCount > 0) {
+            setNotification({
+                 title: t.notificationTitle,
+                 body: t.notificationBody(newCount),
+                 type: 'success'
+            });
+         }
       }
 
-      // Atualiza a referência para a próxima comparação
-      lastRemoteCountRef.current = currentRemoteCount;
+      // Atualiza o Set de conhecidos
+      knownIdsRef.current = currentIds;
+      // Marca que a primeira carga já aconteceu
+      isFirstLoadRef.current = false;
 
-    } catch (error) {
-      console.error("Erro ao buscar tarefas do backend. Usando mock:", error.message);
-      // Fallback silencioso ou manter estado anterior
+      // Atualiza o estado visual
+      setTasks(remote);
+
+    } catch (error: any) {
+      console.error("Erro no fetch:", error.message);
+      if (tasks.length === 0 && !opts.background) setTasks(MOCK_TASKS);
     } finally {
       if (!opts.background) setIsLoading(false);
     }
-  }, [isAuthenticated, t]);
+  }, [isAuthenticated, t, tasks.length]);
 
-  // Polling Effect
+  // Polling
   useEffect(() => {
     if (isAuthenticated) {
-      fetchTasks(); // Busca inicial imediata
+      fetchTasks();
       const interval = setInterval(() => fetchTasks({ background: true }), 5000);
       return () => clearInterval(interval);
     }
   }, [isAuthenticated, fetchTasks]);
 
-  // Auto-dismiss notification
+  // Toast Timer
   useEffect(() => {
     if (notification) {
       const timer = setTimeout(() => setNotification(null), 4000);
@@ -773,64 +766,50 @@ export default function ArcaneTasksApp() {
     }
   }, [notification]);
 
-  // ** 2. Login: Salvar no LocalStorage
-  const handleLogin = useCallback((userData) => {
+  // Login/Logout handlers
+  const handleLogin = useCallback((userData: LoginData) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify(userData));
     setUserId(userData.userId);
     setIsAuthenticated(true);
   }, []);
 
-  // ** 3. Logout: Limpar do LocalStorage
   const handleLogout = useCallback(() => {
     localStorage.removeItem(SESSION_KEY);
     setIsAuthenticated(false);
     setUserId(null);
-    setTasks(MOCK_TASKS);
+    setTasks([]);
+    knownIdsRef.current.clear();
+    isFirstLoadRef.current = true;
     setCurrentView('tasks');
     setNotification(null);
-    lastRemoteCountRef.current = 0; // Resetar contador
   }, []);
 
-  // Se ainda estiver checando o localStorage, mostra loading
-  if (isCheckingAuth) {
-    return (<div className="min-h-screen flex items-center justify-center bg-gray-100 p-4"><span className="text-4xl animate-spin" style={neonStyleInline}>{IconMap.Loading}</span><p className="text-gray-700 ml-4">{t.restoringSession || "Restaurando sessão..."}</p></div>);
-  }
-
+  if (isCheckingAuth) return (<div className="min-h-screen flex items-center justify-center bg-gray-100 p-4"><span className="text-4xl animate-spin" style={neonStyleInline}>{IconMap.Loading}</span></div>);
   if (!isAuthenticated) return <LoginPage onLogin={handleLogin} t={t} />;
-
-  if (isLoading) return (<div className="min-h-screen flex items-center justify-center bg-gray-100 p-4"><span className="text-4xl animate-pulse" style={neonStyleInline}>{IconMap.Loading}</span><p className="text-gray-700 ml-4">{t.loadingData}</p></div>);
+  if (isLoading && tasks.length === 0) return (<div className="min-h-screen flex items-center justify-center bg-gray-100 p-4"><span className="text-4xl animate-pulse" style={neonStyleInline}>{IconMap.Loading}</span><p className="text-gray-700 ml-4">{t.loadingData}</p></div>);
 
   return (
     <div className="flex h-screen overflow-hidden font-sans bg-gray-50">
       <NotificationToast message={notification} onClose={() => setNotification(null)} type={notification?.type} />
       <div className="hidden md:flex flex-shrink-0"><Sidebar currentView={currentView} setView={setCurrentView} lang={lang} setLang={setLang} t={t} onLogout={handleLogout} /></div>
-
-      {/* Mobile Header */}
       <header className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center w-full fixed top-0 left-0 z-40">
         <span className={`text-xl font-bold tracking-wider ${neonTextClass}`}>{t.appTitle}</span>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 rounded hover:bg-gray-700 transition-colors">{isSidebarOpen ? <span className="text-lg" style={neonStyleInline}>{IconMap.Logout}</span> : <span className="text-2xl">☰</span>}</button>
       </header>
-
       {isSidebarOpen && (
         <>
           <div className="fixed inset-0 bg-black opacity-50 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
           <div className="fixed top-0 left-0 h-full z-50 transition-transform duration-300 ease-in-out w-64"><Sidebar currentView={currentView} setView={(v) => { setCurrentView(v); setIsSidebarOpen(false); }} lang={lang} setLang={setLang} t={t} onLogout={() => { handleLogout(); setIsSidebarOpen(false); }} /></div>
         </>
       )}
-
       <main className="flex flex-col flex-grow overflow-y-auto pt-16 md:pt-0">
         {currentView === 'dashboard' && <DashboardSummary tasks={tasks} t={t} />}
-        {/* Passamos onNotify para que o Dashboard possa criar alertas de sucesso/erro */}
         {currentView === 'tasks' && <MainDashboard tasks={tasks} userId={userId} t={t} setTasks={setTasks} onNotify={setNotification} />}
         {currentView === 'members' && <MembersView t={t} />}
         {currentView === 'settings' && <SettingsView t={t} neonStyle={neonStyleInline} />}
         {currentView === 'metrics' && <MetricsView t={t} neonStyle={neonStyleInline} />}
-
         {!(currentView === 'tasks' || currentView === 'dashboard' || currentView === 'members' || currentView === 'settings' || currentView === 'metrics') && (
-          <div className="p-8 text-center text-gray-500">
-            <h2 className="text-2xl font-bold mt-20">View</h2>
-            <p>Em construção</p>
-          </div>
+          <div className="p-8 text-center text-gray-500"><h2 className="text-2xl font-bold mt-20">View</h2><p>Em construção</p></div>
         )}
       </main>
     </div>
