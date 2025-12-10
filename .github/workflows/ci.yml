@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20.x] # Atualizado para Node 20.x (Requisito do Next.js moderno)
+        node-version: [20.x] # Node 20.x (Requisito do Next.js)
 
     steps:
     # 1. Baixa o código do repositório
@@ -24,14 +24,12 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        # Cache desativado temporariamente para evitar erros se o package-lock.json não estiver no repo
-        # cache: 'npm'
-        # cache-dependency-path: backend/package-lock.json
+        # Cache removido temporariamente até que package-lock.json esteja no repo
 
     - name: Install Backend Dependencies
       run: |
         cd backend
-        # Usa 'npm install' que é mais tolerante à falta de lockfile que 'npm ci'
+        # Usa 'npm install' para criar lockfile se necessário
         npm install
 
     # (Descomente abaixo se tiver testes configurados no backend)
@@ -45,9 +43,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        # Cache desativado temporariamente
-        # cache: 'npm'
-        # cache-dependency-path: frontend/package-lock.json
+        # Cache removido temporariamente
 
     - name: Install Frontend Dependencies
       run: |
