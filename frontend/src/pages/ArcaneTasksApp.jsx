@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'; // Adicionado useRef
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 
 /**
@@ -7,6 +7,7 @@ import axios from 'axios';
  * - Mock data + integração com BACKEND_URL via axios
  * - i18n embutido
  * - Correção do flickering/loop de renderização no polling (useRef)
+ * - Persistência de Sessão (LocalStorage) implementada
  */
 
 /* ---------------------------
@@ -19,6 +20,7 @@ const generateUUID = () => {
 };
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1/tasks';
+const SESSION_KEY = 'arcane_session_v1'; // Chave para o localStorage
 
 /* ---------------------------
    Mock tasks
@@ -81,6 +83,7 @@ const translations = {
     filterSort: "Ordenar por",
     noTasksFound: "Nenhuma tarefa encontrada.",
     loadingData: "Carregando tarefas do backend...",
+    restoringSession: "Restaurando sessão...",
     summaryTasks: "Tarefas Ativas/Total",
     summaryUsers: "Membros do Workspace",
     summaryProgress: "Progresso da Sprint",
@@ -172,6 +175,7 @@ const translations = {
     filterSort: "Sort by",
     noTasksFound: "No tasks found.",
     loadingData: "Loading tasks from backend...",
+    restoringSession: "Restoring session...",
     summaryTasks: "Active Tasks/Total",
     summaryUsers: "Workspace Members",
     summaryProgress: "Sprint Progress",
@@ -570,7 +574,7 @@ const MainDashboard = ({ tasks, userId, t, setTasks }) => {
           <input type="text" placeholder={t.searchPlaceholder} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full py-3 pl-12 pr-4 border border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-shadow shadow-md text-gray-900 placeholder-gray-500" />
         </div>
 
-        {/* Filtros + Ordenação: REPARAÇÃO DE COR */}
+        {/* Filtros + Ordenação */}
         <div className="flex gap-4 flex-wrap justify-end items-center">
           <select className="py-3 px-4 border border-gray-300 rounded-xl shadow-md text-sm bg-gray-100 text-gray-900" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">{t.filterStatus}</option>
@@ -653,6 +657,8 @@ const LoginPage = ({ onLogin, t }) => {
 export default function ArcaneTasksApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userId, setUserId] = useState(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Estado para checagem inicial
+
   const [currentView, setCurrentView] = useState('tasks');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lang, setLang] = useState('pt');
@@ -662,15 +668,32 @@ export default function ArcaneTasksApp() {
 
   const t = translations[lang] || translations['pt'];
 
+  // ** 1. PERSISTÊNCIA: Restaurar sessão ao montar o componente
+  useEffect(() => {
+    const storedSession = localStorage.getItem(SESSION_KEY);
+    if (storedSession) {
+      try {
+        const session = JSON.parse(storedSession);
+        if (session && session.userId) {
+          setUserId(session.userId);
+          setIsAuthenticated(true);
+        }
+      } catch (e) {
+        console.error("Erro ao restaurar sessão:", e);
+        localStorage.removeItem(SESSION_KEY);
+      }
+    }
+    setIsCheckingAuth(false);
+  }, []);
+
   // ** CORREÇÃO DO FLICKERING/LOOP DE POLLING:
-  // 1. Usar useRef para manter uma referência ao estado 'tasks'
+  // Usar useRef para manter uma referência ao estado 'tasks'
   const tasksRef = useRef(tasks);
   useEffect(() => {
-      tasksRef.current = tasks; // Mantém o ref atualizado a cada render
+      tasksRef.current = tasks;
   }, [tasks]);
 
 
-  // 2. Remover 'tasks' das dependências do useCallback
   const fetchTasks = useCallback(async (opts = { background: false }) => {
     if (!isAuthenticated) return;
     if (!opts.background) setIsLoading(true);
@@ -678,13 +701,11 @@ export default function ArcaneTasksApp() {
       const response = await axios.get(BACKEND_URL);
       const remote = Array.isArray(response.data) ? response.data : [];
 
-      // Usa a função de atualização para mesclar sem depender de 'tasks' diretamente no escopo
       setTasks(prev => {
         const localOnly = (Array.isArray(prev) ? prev : []).filter(p => !remote.find(r => r.id === p.id));
         return [...localOnly, ...remote];
       });
 
-      // Notificação de novas (usa tasksRef.current para evitar a dependência no useCallback)
       const remoteCount = remote.length;
       const localCount = (Array.isArray(tasksRef.current) ? tasksRef.current.filter(x => typeof x.id === 'number').length : 0);
 
@@ -700,12 +721,11 @@ export default function ArcaneTasksApp() {
     } finally {
       if (!opts.background) setIsLoading(false);
     }
-  }, [isAuthenticated, t]); // 'tasks' removida daqui. Apenas dependências estáveis.
+  }, [isAuthenticated, t]);
 
   useEffect(() => {
     if (isAuthenticated) {
       fetchTasks();
-      // O Polling está estável, pois fetchTasks é estável
       const interval = setInterval(() => fetchTasks({ background: true }), 5000);
       return () => clearInterval(interval);
     }
@@ -718,12 +738,30 @@ export default function ArcaneTasksApp() {
     }
   }, [notification]);
 
-  const handleLogin = useCallback((userData) => { setUserId(userData.userId); setIsAuthenticated(true); }, []);
-  const handleLogout = useCallback(() => { setIsAuthenticated(false); setUserId(null); setTasks(MOCK_TASKS); setCurrentView('tasks'); setNotification(null); }, []);
+  // ** 2. Login: Salvar no LocalStorage
+  const handleLogin = useCallback((userData) => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(userData));
+    setUserId(userData.userId);
+    setIsAuthenticated(true);
+  }, []);
+
+  // ** 3. Logout: Limpar do LocalStorage
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem(SESSION_KEY);
+    setIsAuthenticated(false);
+    setUserId(null);
+    setTasks(MOCK_TASKS);
+    setCurrentView('tasks');
+    setNotification(null);
+  }, []);
+
+  // Se ainda estiver checando o localStorage, mostra loading
+  if (isCheckingAuth) {
+    return (<div className="min-h-screen flex items-center justify-center bg-gray-100 p-4"><span className="text-4xl animate-spin" style={neonStyleInline}>{IconMap.Loading}</span><p className="text-gray-700 ml-4">{t.restoringSession || "Restaurando sessão..."}</p></div>);
+  }
 
   if (!isAuthenticated) return <LoginPage onLogin={handleLogin} t={t} />;
 
-  // Condição para o Loading só aparece na primeira busca (background: false)
   if (isLoading) return (<div className="min-h-screen flex items-center justify-center bg-gray-100 p-4"><span className="text-4xl animate-pulse" style={neonStyleInline}>{IconMap.Loading}</span><p className="text-gray-700 ml-4">{t.loadingData}</p></div>);
 
   return (
