@@ -3,7 +3,9 @@ import axios from 'axios';
 
 /**
  * ArcaneTasksApp.tsx
- * Versão TypeScript completa com interfaces e tipagem forte.
+ * - Correção de Datas (formatação visual).
+ * - Remoção de Duplicatas (Backend é a única fonte de verdade).
+ * - Notificação corrigida.
  */
 
 /* ---------------------------
@@ -30,7 +32,6 @@ interface LoginData {
   userId: string;
 }
 
-// Tipo simplificado para o objeto de traduções
 type TranslationKeys = {
   [key: string]: string | ((arg: any) => string) | any;
 };
@@ -49,15 +50,21 @@ const generateUUID = (): string => {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
 
+// Formata data ISO (2027-01-10T00:00...) para (10/01/2027)
+const formatDate = (isoString: string): string => {
+  if (!isoString) return 'Sem data';
+  try {
+    // Tenta criar data. Se falhar, retorna original.
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return isoString;
+    return date.toLocaleDateString('pt-BR');
+  } catch (e) {
+    return isoString;
+  }
+};
+
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1/tasks';
 const SESSION_KEY = 'arcane_session_v1';
-
-/* ---------------------------
-   Mock tasks
-   --------------------------- */
-const MOCK_TASKS: Task[] = [
-  { id: 1, title: "Exemplo: Backend Offline", status: "A Fazer", assignee: "Sistema", dueDate: "2027-01-01", version: 1, priority: 'Low' },
-];
 
 /* ---------------------------
    Translations (i18n)
@@ -272,7 +279,7 @@ const TaskDetailModal: React.FC<{ task: Task | null; t: TranslationKeys; onClose
         <div className="space-y-3 text-sm">
           <p className="flex justify-between border-b pb-1"><strong className="text-gray-600">{t.detailsAssignedTo}:</strong><span className="font-medium text-indigo-600">{task.assignee}</span></p>
           <p className="flex justify-between border-b pb-1"><strong className="text-gray-600">{t.detailsStatus}:</strong><span className={`font-medium ${task.status === 'Concluído' ? 'text-green-600' : 'text-yellow-600'}`}>{statusText}</span></p>
-          <p className="flex justify-between border-b pb-1"><strong className="text-gray-600">{t.dueDate}:</strong><span className="font-medium text-gray-800">{task.dueDate}</span></p>
+          <p className="flex justify-between border-b pb-1"><strong className="text-gray-600">{t.dueDate}:</strong><span className="font-medium text-gray-800">{formatDate(task.dueDate)}</span></p>
           <p className="flex justify-between"><strong className="text-gray-600">{t.detailsVersion}:</strong><span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">V{task.version}</span></p>
         </div>
       </div>
@@ -508,7 +515,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, t, onDetailsClick }) => {
       </div>
       <div className="space-y-1 text-sm text-gray-500">
         <p><strong>{t.responsible}:</strong> {task.assignee}</p>
-        <p><strong>{t.dueDate}:</strong> <span className={priorityColor}>{task.dueDate}</span></p>
+        <p><strong>{t.dueDate}:</strong> <span className={priorityColor}>{formatDate(task.dueDate)}</span></p>
         <p><strong>{t.versionLocking}:</strong> V{task.version}</p>
         <p className={`flex items-center text-xs mt-2 ${neonTextClass}`}><span className="text-base mr-1" style={neonStyleInline}>{IconMap.RealTime}</span>{t.realTimeUpdate}</p>
       </div>
@@ -568,8 +575,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ tasks, userId, t, setTask
     try {
         const response = await axios.post<Task>(BACKEND_URL, payload);
         const savedTask = response.data;
-        // Atualiza estado
-        setTasks(prev => [savedTask, ...(Array.isArray(prev) ? prev : [])]);
+        // Atualiza estado. Como o Backend é a fonte da verdade,
+        // a gente adiciona aqui para feedback imediato, mas o Polling vai sobrescrever em 5s.
+        setTasks(prev => [savedTask, ...prev]);
         if (onNotify) onNotify({ title: 'Sucesso', body: 'Tarefa salva no banco de dados!', type: 'success' });
     } catch (error) {
         console.error("Erro ao salvar tarefa:", error);
@@ -682,7 +690,10 @@ export default function ArcaneTasksApp() {
   const [currentView, setCurrentView] = useState('tasks');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lang, setLang] = useState('pt');
+
+  // *** CORREÇÃO: Inicializar vazio para evitar duplicatas MOCK ***
   const [tasks, setTasks] = useState<Task[]>([]);
+
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState<NotificationMsg | null>(null);
 
@@ -705,8 +716,7 @@ export default function ArcaneTasksApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // ** CORREÇÃO DE NOTIFICAÇÃO (SET de IDs)
-  // knownIdsRef agora tipado para aceitar string ou number
+  // ** CORREÇÃO DE NOTIFICAÇÃO
   const knownIdsRef = useRef<Set<string | number>>(new Set());
   const isFirstLoadRef = useRef(true);
 
@@ -738,16 +748,17 @@ export default function ArcaneTasksApp() {
       // Marca que a primeira carga já aconteceu
       isFirstLoadRef.current = false;
 
-      // Atualiza o estado visual
+      // ** CORREÇÃO FINAL DE DUPLICATAS **
+      // Sobrescreve TUDO com o que veio do backend.
       setTasks(remote);
 
     } catch (error: any) {
       console.error("Erro no fetch:", error.message);
-      if (tasks.length === 0 && !opts.background) setTasks(MOCK_TASKS);
+      // Removemos o fallback de mock aqui para evitar sujeira
     } finally {
       if (!opts.background) setIsLoading(false);
     }
-  }, [isAuthenticated, t, tasks.length]);
+  }, [isAuthenticated, t]);
 
   // Polling
   useEffect(() => {
